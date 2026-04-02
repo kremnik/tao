@@ -1,6 +1,9 @@
 # Cursor / local editor AI
 .cursor/
 
+# VS Code / Cursor workspace settings
+.vscode/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,0 +1,41 @@
+#!/bin/bash
+#
+# pre-push hook: block dangerous push operations.
+#
+#   - Force push (--force / --force-with-lease) to master/main
+#   - Deleting remote master/main
+#
+# To bypass in emergencies:  git push --no-verify
+
+set -euo pipefail
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+REMOTE="$1"
+PROTECTED_BRANCHES="^refs/heads/(master|main)$"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" =~ $PROTECTED_BRANCHES ]]; then
+    BRANCH="${remote_ref#refs/heads/}"
+
+    # Block deleting protected branch
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+      echo -e "${RED}BLOCKED${NC}: deleting protected branch ${YELLOW}${BRANCH}${NC} on ${REMOTE}"
+      exit 1
+    fi
+
+    # Block force push (non-fast-forward)
+    if [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
+      MERGE_BASE=$(git merge-base "$local_sha" "$remote_sha" 2>/dev/null || echo "")
+      if [ "$MERGE_BASE" != "$remote_sha" ]; then
+        echo -e "${RED}BLOCKED${NC}: non-fast-forward (force) push to ${YELLOW}${BRANCH}${NC}"
+        echo -e "Use ${YELLOW}git push --no-verify${NC} if you really mean it."
+        exit 1
+      fi
+    fi
+  fi
+done
+
+exit 0

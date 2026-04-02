@@ -1,0 +1,104 @@
+#!/bin/bash
+#
+# pre-commit hook: block commits that contain dangerous or sensitive content.
+#
+# Checks staged files (added/modified) for:
+#   - Hardcoded secrets, tokens, API keys, passwords
+#   - Private keys (RSA, EC, etc.)
+#   - AWS credentials
+#   - Large binary blobs (>5 MB)
+#
+# To bypass in emergencies:  git commit --no-verify
+
+set -euo pipefail
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+BLOCKED=0
+
+# --- 1. Scan for secrets / dangerous strings in staged diffs ----------
+
+PATTERNS=(
+  'PRIVATE KEY-----'
+  'ghp_[A-Za-z0-9]{36}'
+  'github_pat_[A-Za-z0-9_]{80,}'
+  'gho_[A-Za-z0-9]{36}'
+  'ghu_[A-Za-z0-9]{36}'
+  'ghs_[A-Za-z0-9]{36}'
+  'AKIA[0-9A-Z]{16}'
+  'sk-[A-Za-z0-9]{20,}'
+  'sk-proj-[A-Za-z0-9_-]{20,}'
+  'password\s*[:=]\s*["\x27][^"\x27]{4,}'
+  'secret\s*[:=]\s*["\x27][^"\x27]{4,}'
+  'api[_-]?key\s*[:=]\s*["\x27][^"\x27]{4,}'
+  'token\s*[:=]\s*["\x27][^"\x27]{4,}'
+  'Bearer [A-Za-z0-9_.~+/=-]{20,}'
+)
+
+STAGED_DIFF=$(git diff --cached --diff-filter=ACM -U0 -- . ':!*.lock' ':!*.sum' || true)
+
+if [ -n "$STAGED_DIFF" ]; then
+  for pat in "${PATTERNS[@]}"; do
+    MATCHES=$(echo "$STAGED_DIFF" | grep -nP "$pat" 2>/dev/null || true)
+    if [ -n "$MATCHES" ]; then
+      echo -e "${RED}BLOCKED${NC}: staged diff matches dangerous pattern: ${YELLOW}${pat}${NC}"
+      echo "$MATCHES" | head -5
+      BLOCKED=1
+    fi
+  done
+fi
+
+# --- 2. Block known dangerous file names / extensions -----------------
+
+DANGEROUS_FILES=(
+  '\.pem$'
+  '\.key$'
+  '\.p12$'
+  '\.pfx$'
+  '\.jks$'
+  'id_rsa'
+  'id_ed25519'
+  'id_ecdsa'
+  '\.env$'
+  'credentials\.json$'
+  'service[-_]?account.*\.json$'
+)
+
+STAGED_NAMES=$(git diff --cached --name-only --diff-filter=ACM || true)
+
+if [ -n "$STAGED_NAMES" ]; then
+  for fpat in "${DANGEROUS_FILES[@]}"; do
+    FMATCHES=$(echo "$STAGED_NAMES" | grep -iP "$fpat" 2>/dev/null || true)
+    if [ -n "$FMATCHES" ]; then
+      echo -e "${RED}BLOCKED${NC}: staging a potentially sensitive file: ${YELLOW}${FMATCHES}${NC}"
+      BLOCKED=1
+    fi
+  done
+fi
+
+# --- 3. Block large binary blobs (>5 MB) -----------------------------
+
+MAX_BYTES=5242880
+
+if [ -n "$STAGED_NAMES" ]; then
+  while IFS= read -r fname; do
+    [ -z "$fname" ] && continue
+    SIZE=$(git cat-file -s ":$fname" 2>/dev/null || echo 0)
+    if [ "$SIZE" -gt "$MAX_BYTES" ]; then
+      echo -e "${RED}BLOCKED${NC}: file ${YELLOW}${fname}${NC} is $(( SIZE / 1048576 )) MB (limit 5 MB)"
+      BLOCKED=1
+    fi
+  done <<< "$STAGED_NAMES"
+fi
+
+# --- 4. Verdict -------------------------------------------------------
+
+if [ "$BLOCKED" -ne 0 ]; then
+  echo ""
+  echo -e "${RED}Commit rejected.${NC} Fix the issues above or use ${YELLOW}git commit --no-verify${NC} to bypass."
+  exit 1
+fi
+
+exit 0
