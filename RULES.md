@@ -1,0 +1,22 @@
+# RULES.md
+
+- Read relevant files before making changes.
+- Understand the current implementation before proposing a rewrite.
+- Prefer small, local, reviewable edits.
+- Do not touch unrelated modules.
+- Do not mix feature work with cleanup unless necessary.
+- Preserve existing naming and code style in the touched area.
+- Avoid speculative abstractions and broad refactors.
+- Minimize the number of edited files.
+- Check neighboring code when changing headers, protocol, or build files.
+- Keep diffs compact and easy to review.
+- Build the project after code changes, if possible.
+- Run relevant tests when they exist.
+- If networking code changed, verify both client and server paths.
+- If protocol code changed, update all send/receive usages.
+- Never claim success without verification.
+- If verification was not possible, say so explicitly.
+- Report what changed, which files were touched, and how it was checked.
+- Prefer correctness over speed.
+- Prefer minimal scope over architectural ambition.
+- Be honest about uncertainty and remaining risks.
